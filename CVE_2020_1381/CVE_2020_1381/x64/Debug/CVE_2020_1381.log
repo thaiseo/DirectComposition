@@ -1,4 +1,1 @@
-﻿  Source.cpp
-C:\Users\TCP\source\repos\DirectComposition\CVE_2020_1381\CVE_2020_1381\Source.cpp(90,12): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'HANDLE'
-C:\Users\TCP\source\repos\DirectComposition\CVE_2020_1381\CVE_2020_1381\Source.cpp(90,12): warning C4313: 'printf': '%d' in format string conflicts with argument 1 of type 'HANDLE'
-  CVE_2020_1381.vcxproj -> C:\Users\TCP\source\repos\DirectComposition\CVE_2020_1381\x64\Debug\CVE_2020_1381.exe
+﻿  CVE_2020_1381.vcxproj -> C:\Users\thaic\Source\Repos\DirectComposition\CVE_2020_1381\x64\Debug\CVE_2020_1381.exe

